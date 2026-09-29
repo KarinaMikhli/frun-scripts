@@ -154,7 +154,7 @@ def handoff_files(mirror):
 def cmd_prompts_from_triggers(a):
     with open(a.triggers, encoding="utf-8") as f:
         raw = f.read()
-    data, _ = json.JSONDecoder().raw_decode(raw.lstrip())
+           data, _ = json.JSONDecoder().raw_decode(raw[raw.index("{"):])
     items = data.get("data", data.get("triggers", [])) if isinstance(data, dict) else data
     pdir = os.path.join(a.mirror, "prompts")
     os.makedirs(pdir, exist_ok=True)
