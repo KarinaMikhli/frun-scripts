@@ -45,7 +45,7 @@ body { font-family: 'DM Sans', sans-serif; background: #f7f6f3; padding: 24px 28
 .card-desc { font-size: 11px; color: #5a5a6a; padding: 0 14px 9px; line-height: 1.4; }
 .card-footnote { font-size: 9.5px; color: #8a8a96; font-style: italic; padding: 2px 14px 10px; line-height: 1.3; }
 .divider { height: 1px; background: #f0eeea; margin: 0 14px; }
-.ch       { padding: 8px 14px 11px; display: flex; flex-direction: column; gap: 4px; }
+.ch       { padding: 8px 14px 11px; display: grid; grid-template-columns: 1fr; gap: 4px; }
 .ch-2col  { padding: 8px 14px 11px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
 .ch-5col  { padding: 8px 14px 11px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px 10px; }
 .ch-3col  { padding: 8px 14px 11px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 10px; }
