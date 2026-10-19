@@ -52,7 +52,7 @@ body { font-family: 'DM Sans', sans-serif; background: #f7f6f3; padding: 24px 28
 .channel { display: flex; align-items: center; gap: 3px; font-size: 11px; }
 .channel-hash { color: #c0bfd0; font-weight: 600; font-size: 11px; flex-shrink: 0; }
 .channel-name { color: #2a2a3a; font-weight: 500; }
-.tips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
+.tips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; align-items: start; }
 .tip { background: #fff; border: 1px solid #e2e0db; border-radius: 8px; padding: 9px 13px; font-size: 11px; color: #5a5a6a; line-height: 1.4; }
 .tip strong { color: #1c1c22; }
 .footer { text-align: center; margin-top: 10px; font-size: 10px; color: #c0bfd0; }
