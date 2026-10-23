@@ -373,16 +373,13 @@ def main():
     if a.out:
         d=os.path.dirname(a.out)
         if d: os.makedirs(d, exist_ok=True)
-        if a.append and os.path.exists(a.out):
-            if body:  # only append when there are new messages
-                open(a.out,"a",encoding="utf-8").write("\n".join(body)+"\n")
-        else:
-            open(a.out,"w",encoding="utf-8").write(md)
-
-    if a.jsonl_out:
+            if a.jsonl_out:
         d=os.path.dirname(a.jsonl_out)
         if d: os.makedirs(d, exist_ok=True)
-        if a.append and os.path.exists(a.jsonl_out):
+        mode = "a" if os.path.exists(a.jsonl_out) else "w"
+        if jsonl_rows:
+            with open(a.jsonl_out, mode, encoding="utf-8") as f:
+                for row in jsonl_rows: f.write(json.dumps(row, ensure_ascii=False)+"\n")
             if jsonl_rows:
                 with open(a.jsonl_out,"a",encoding="utf-8") as f:
                     for row in jsonl_rows: f.write(json.dumps(row, ensure_ascii=False)+"\n")
