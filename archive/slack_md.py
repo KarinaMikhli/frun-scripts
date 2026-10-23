@@ -206,3 +206,189 @@ def emit_late_replies(a):
         if is_bot(r["name"], r["uid"]) or SYS_PAT.search(r["body"]):
             continue
         c = clean(r["body"])
+        if not c:
+            continue
+        kept += 1
+        if r["date"] != cur_date:
+            cur_date = r["date"]
+            body.append(""); body.append(f"## {cur_date}"); body.append("")
+        body.append(f"**{hhmm(r['time'])} {r['tz']} — {r['name']}**  ")
+        body.append("")
+        body.append(f"_Late-discovered reply — thread started by {a.parent_author} "
+                     f"on {a.parent_date}: “{a.parent_snippet}”_")
+        body.append("")
+        body.append(c)
+        body.append(""); body.append("---")
+
+        jsonl_rows.append(dict(
+            channel=chan_name, channel_id=(a.channel_id or None), type="reply",
+            ts=r["ts"], parent_ts=a.parent_ts, user=r["name"], user_id=r["uid"],
+            date=r["date"], time=r["time"], tz=r["tz"],
+            text=c, files=r.get("files") or [], reactions=r.get("reactions"),
+            has_thread=None,
+        ))
+
+    if body and a.out:
+        d = os.path.dirname(a.out)
+        if d: os.makedirs(d, exist_ok=True)
+        with open(a.out, "a", encoding="utf-8") as f:
+            f.write("\n".join(body) + "\n")
+
+    if jsonl_rows and a.jsonl_out:
+        d = os.path.dirname(a.jsonl_out)
+        if d: os.makedirs(d, exist_ok=True)
+        mode = "a" if os.path.exists(a.jsonl_out) else "w"
+        with open(a.jsonl_out, mode, encoding="utf-8") as f:
+            for row in jsonl_rows: f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+    print(f"{new_max:.6f}")  # new high-water reply ts, for open_threads.json
+    sys.stderr.write(f"[late-replies] parent={a.parent_ts} appended={kept} "
+                      f"new_max={new_max:.6f} jsonl_rows={len(jsonl_rows)}\n")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--name", default="")
+    ap.add_argument("--type", default="")
+    ap.add_argument("--topic", default="")
+    ap.add_argument("--pages", nargs="*", default=[])
+    ap.add_argument("--threads", nargs="*", default=[])
+    ap.add_argument("--out", default="")
+    ap.add_argument("--list-threads", action="store_true")
+    ap.add_argument("--keep-bots", default="")
+    ap.add_argument("--since", default="")   # only include messages with ts > since (incremental)
+    ap.add_argument("--append", action="store_true")  # append body to existing --out instead of overwriting
+    # --jsonl-out / --channel-id: structured sidecar output. Both are optional
+    # overrides now -- if omitted, they're auto-derived below from --out and
+    # manifest.json, so the sidecar is written by default with no flag needed.
+    ap.add_argument("--jsonl-out", default="")
+    ap.add_argument("--channel-id", default="")
+    # --late-replies mode: append newly-discovered replies to an
+    # already-archived (older) thread parent. See emit_late_replies().
+    ap.add_argument("--late-replies", action="store_true")
+    ap.add_argument("--parent-ts", default="")
+    ap.add_argument("--parent-date", default="")
+    ap.add_argument("--parent-author", default="")
+    ap.add_argument("--parent-snippet", default="")
+    ap.add_argument("--after-ts", default="")
+    ap.add_argument("--thread-file", default="")
+    a = ap.parse_args()
+
+    if a.keep_bots:
+        for tok in re.split(r"\s*,\s*", a.keep_bots.strip()):
+            if tok: KEEP_BOTS.add(tok)
+
+    # Auto-populate the JSONL sidecar target so it's written by default --
+    # no --jsonl-out/--channel-id required from any caller, scheduled or not.
+    if not a.jsonl_out:
+        a.jsonl_out = _default_jsonl_path(a.out)
+    if not a.channel_id:
+        cname = a.name or (os.path.splitext(os.path.basename(a.out))[0] if a.out else "")
+        a.channel_id = _lookup_channel_id(cname)
+
+    if a.late_replies:
+        emit_late_replies(a)
+        return
+
+    if not a.name:
+        ap.error("--name is required outside of --late-replies mode")
+
+    msgs = parse_pages(a.pages)
+
+    if a.list_threads:
+        for ts,m in msgs.items():
+            if m["has_thread"]: print(ts)
+        return
+
+    threads = parse_threads(a.threads) if a.threads else {}
+    ordered = sorted(msgs.items(), key=lambda kv: float(kv[0]))
+    since = float(a.since) if a.since else None
+    new_max = since if since is not None else 0.0
+
+    kept=0; dropped=0; out=[]; dates=[]
+    body=[]
+    jsonl_rows=[]
+    cur_date=None
+    for ts,m in ordered:
+        if since is not None and float(ts) <= since:
+            continue
+        if float(ts) > new_max: new_max = float(ts)
+
+        parent_is_bot = bool(is_bot(m["name"], m["uid"]) or SYS_PAT.search(m["content"]))
+        reps=[r for r in threads.get(ts,[]) if not (is_bot(r["name"],r["uid"]) or SYS_PAT.search(r["body"]))]
+
+        if parent_is_bot and not reps:
+            dropped+=1; continue
+
+        c = "" if parent_is_bot else clean(m["content"])
+        if not parent_is_bot and not c and not m["files"] and not reps:
+            dropped+=1; continue
+
+        kept+=1; dates.append(m["date"])
+        if m["date"]!=cur_date:
+            cur_date=m["date"]; body.append(""); body.append(f"## {cur_date}"); body.append("")
+        if parent_is_bot:
+            body.append(f"**{hhmm(m['time'])} {m['tz']} — {m['name']}** _(system/bot message — content suppressed; human replies below)_  ")
+        else:
+            body.append(f"**{hhmm(m['time'])} {m['tz']} — {m['name']}**  ")
+            if c: body.append(""); body.append(c)
+            if m["files"]: body.append(""); body.append("*Files: "+"; ".join(m["files"])+"*")
+        if reps:
+            body.append(""); body.append(f"*Thread ({len(reps)} {'reply' if len(reps)==1 else 'replies'}):*")
+            for r in reps:
+                rb = clean(r["body"]).replace("\n"," ").strip() or "_(no text)_"
+                body.append(f"  - **{hhmm(r['time'])} — {r['name']}:** {rb}")
+        body.append(""); body.append("---")
+
+        if a.jsonl_out:
+            if not parent_is_bot:
+                jsonl_rows.append(dict(
+                    channel=a.name, channel_id=(a.channel_id or None), type="message",
+                    ts=ts, parent_ts=None, user=m["name"], user_id=m["uid"],
+                    date=m["date"], time=m["time"], tz=m["tz"],
+                    text=c, files=m["files"], reactions=m.get("reactions"),
+                    has_thread=bool(reps),
+                ))
+            for r in reps:
+                jsonl_rows.append(dict(
+                    channel=a.name, channel_id=(a.channel_id or None), type="reply",
+                    ts=r["ts"], parent_ts=ts, user=r["name"], user_id=r["uid"],
+                    date=r["date"], time=r["time"], tz=r["tz"],
+                    text=clean(r["body"]), files=r.get("files") or [], reactions=r.get("reactions"),
+                    has_thread=None,
+                ))
+
+    cov = f"{dates[0]} → {dates[-1]}" if dates else "no human messages in window"
+    head=[f"# #{a.name} — Slack archive",""]
+    t = f" *({a.type})*" if a.type else ""
+    head.append(f"> **Channel:** #{a.name}{t}  ")
+    if a.topic: head.append(f"> **Topic:** {a.topic}  ")
+    head.append(f"> **Coverage:** {cov} · {kept} human messages  ")
+    # FIXED: this line used to hardcode "2026-06-19" regardless of when the file
+    # was actually (re)generated, on every run since that date. Now uses today's
+    # real date.
+    head.append(f"> **Generated:** {datetime.date.today().isoformat()} · automation/bot & system messages removed · reactions/emoji stripped · threads nested · oldest → newest")
+    md="\n".join(head+body)+"\n"
+
+    if a.out:
+        d=os.path.dirname(a.out)
+        if d: os.makedirs(d, exist_ok=True)
+        if a.append and os.path.exists(a.out):
+            if body:  # only append when there are new messages
+                open(a.out,"a",encoding="utf-8").write("\n".join(body)+"\n")
+        else:
+            open(a.out,"w",encoding="utf-8").write(md)
+
+    if a.jsonl_out:
+        d=os.path.dirname(a.jsonl_out)
+        if d: os.makedirs(d, exist_ok=True)
+        mode = "a" if os.path.exists(a.jsonl_out) else "w"
+        if jsonl_rows:
+            with open(a.jsonl_out, mode, encoding="utf-8") as f:
+                for row in jsonl_rows: f.write(json.dumps(row, ensure_ascii=False)+"\n")
+
+    print(f"{new_max:.6f}")  # new high-water timestamp, for incremental state
+    sys.stderr.write(f"[{a.name}] parsed={len(msgs)} kept={kept} dropped={dropped} threads={sum(1 for k in threads if threads[k])} new_max={new_max:.6f} coverage={cov} jsonl_rows={len(jsonl_rows)}\n")
+
+if __name__=="__main__":
+    main()
