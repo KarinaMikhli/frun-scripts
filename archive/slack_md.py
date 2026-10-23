@@ -309,25 +309,30 @@ def main():
     body=[]
     jsonl_rows=[]
     cur_date=None
-    for ts,m in ordered:
+        for ts,m in ordered:
         if since is not None and float(ts) <= since:
             continue
         if float(ts) > new_max: new_max = float(ts)
-        if is_bot(m["name"], m["uid"]) or SYS_PAT.search(m["content"]):
+
+        parent_is_bot = bool(is_bot(m["name"], m["uid"]) or SYS_PAT.search(m["content"]))
+        reps=[r for r in threads.get(ts,[]) if not (is_bot(r["name"],r["uid"]) or SYS_PAT.search(r["body"]))]
+
+        if parent_is_bot and not reps:
             dropped+=1; continue
-        c = clean(m["content"])
-        if not c and not m["files"]:
-            # keep only if it has a (human) thread under it; else skip empties
-            reps=[r for r in threads.get(ts,[]) if not (is_bot(r["name"],r["uid"]) or SYS_PAT.search(r["body"]))]
-            if not reps:
-                dropped+=1; continue
+
+        c = "" if parent_is_bot else clean(m["content"])
+        if not parent_is_bot and not c and not m["files"] and not reps:
+            dropped+=1; continue
+
         kept+=1; dates.append(m["date"])
         if m["date"]!=cur_date:
             cur_date=m["date"]; body.append(""); body.append(f"## {cur_date}"); body.append("")
-        body.append(f"**{hhmm(m['time'])} {m['tz']} — {m['name']}**  ")
-        if c: body.append(""); body.append(c)
-        if m["files"]: body.append(""); body.append("*Files: "+"; ".join(m["files"])+"*")
-        reps=[r for r in threads.get(ts,[]) if not (is_bot(r["name"],r["uid"]) or SYS_PAT.search(r["body"]))]
+        if parent_is_bot:
+            body.append(f"**{hhmm(m['time'])} {m['tz']} — {m['name']}** _(system/bot message — content suppressed; human replies below)_  ")
+        else:
+            body.append(f"**{hhmm(m['time'])} {m['tz']} — {m['name']}**  ")
+            if c: body.append(""); body.append(c)
+            if m["files"]: body.append(""); body.append("*Files: "+"; ".join(m["files"])+"*")
         if reps:
             body.append(""); body.append(f"*Thread ({len(reps)} {'reply' if len(reps)==1 else 'replies'}):*")
             for r in reps:
@@ -336,13 +341,14 @@ def main():
         body.append(""); body.append("---")
 
         if a.jsonl_out:
-            jsonl_rows.append(dict(
-                channel=a.name, channel_id=(a.channel_id or None), type="message",
-                ts=ts, parent_ts=None, user=m["name"], user_id=m["uid"],
-                date=m["date"], time=m["time"], tz=m["tz"],
-                text=c, files=m["files"], reactions=m.get("reactions"),
-                has_thread=bool(reps),
-            ))
+            if not parent_is_bot:
+                jsonl_rows.append(dict(
+                    channel=a.name, channel_id=(a.channel_id or None), type="message",
+                    ts=ts, parent_ts=None, user=m["name"], user_id=m["uid"],
+                    date=m["date"], time=m["time"], tz=m["tz"],
+                    text=c, files=m["files"], reactions=m.get("reactions"),
+                    has_thread=bool(reps),
+                ))
             for r in reps:
                 jsonl_rows.append(dict(
                     channel=a.name, channel_id=(a.channel_id or None), type="reply",
