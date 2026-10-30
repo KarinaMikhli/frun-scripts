@@ -95,6 +95,23 @@ def load_text(path):
     raw = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1),16)), raw)
     return raw
 
+# The Slack read tools (slack_read_channel / slack_read_thread) append a
+# navigational hint of their own onto the text of a FORWARDED/quoted message
+# block -- e.g. "... wants to meet in person sometime. — use slack_read_thread
+# or slack_read_channel to read it in context" or, for a forward with no
+# quoted body, "Forwarded message from X (url) — use slack_read_thread or
+# slack_read_channel to read the original message". That's connector output,
+# not anything the human author typed, but it rides along inside the message
+# text field, so it has to be stripped here same as any other markup
+# artifact. Seen in production data in at least two wordings (2026-10-14
+# x2, 2026-10-30), always appended as a trailing clause after an
+# em-dash-like separator, so match the shared "use slack_read_thread or
+# slack_read_channel to read ..." prefix rather than one exact sentence.
+_TOOL_HINT = re.compile(
+    r"\s*[‐-―\-]\s*use slack_read_thread or slack_read_channel to read[^.\n]*\.?\s*",
+    re.I,
+)
+
 def clean(s):
     s = re.sub(r"<mailto:([^|>]+)\|[^>]+>", r"\1", s)
     s = re.sub(r"<(https?://[^|>]+)\|[^>]+>", r"\1", s)
@@ -105,6 +122,7 @@ def clean(s):
     s = re.sub(r"<!(here|channel|everyone)>", r"@\1", s)
     s = s.replace("&amp;","&").replace("&lt;","<").replace("&gt;",">")
     s = re.sub(r":[a-z_][a-z0-9_+\-]*:", "", s)   # emoji shortcodes
+    s = _TOOL_HINT.sub(" ", s)
     return s.strip()
 
 def hhmm(t): return t[:5]
@@ -173,7 +191,7 @@ def emit_late_replies(a):
     """--late-replies mode: given a freshly re-fetched raw thread dump for an
     already-archived parent (tracked in open_threads.json), append ONLY the
     replies newer than --after-ts to the archive. Never touches the original
-    parent block already written to --out — this is a pure append, same as
+    parent block already written to --out -- this is a pure append, same as
     the normal incremental path, just for replies discovered late.
 
     Each late reply is rendered as its own dated block (using the reply's
