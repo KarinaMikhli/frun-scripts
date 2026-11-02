@@ -128,7 +128,8 @@ def watched(mirror):
         for fn in sorted(os.listdir(sdir)):
             if fn.startswith(".") or SECRET_RE.search(fn):
                 continue
-            out["source:" + fn] = (f"/Claude/Source/{fn}", read(os.path.join(sdir, fn)))
+            label = f"account skill {fn[6:-9]}" if fn.startswith("skill-") and fn.endswith("-SKILL.md") else f"/Claude/Source/{fn}"
+            out["source:" + fn] = (label, read(os.path.join(sdir, fn)))
     rh = os.path.join(mirror, "repo_head.txt")
     if os.path.isfile(rh):
         out["repo:frun-scripts"] = ("GitHub frun-scripts version", read(rh).strip() + "\n")
